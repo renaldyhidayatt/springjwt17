@@ -1,6 +1,7 @@
 package com.sanedge.rolepermissionbaru.security.jwt;
 
 import java.io.IOException;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,10 +33,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
   protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
     try {
-      String jwt = parseJwt(request);
-      if (jwt != null && jwtUtils.validateJwtToken(jwt)) {
-        String username = jwtUtils.getUserNameFromJwtToken(jwt);
-
+      Optional<String> accessToken = parseJwt(request);
+      if (accessToken.isPresent() && jwtUtils.validateAccessToken(accessToken.get())) {
+        String username = jwtUtils.getUsernameAccessToken(accessToken.get());
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
             userDetails,
@@ -44,7 +44,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
+
       }
+
     } catch (Exception e) {
       logger.error("Cannot set user authentication: {}", e);
     }
@@ -52,13 +54,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     filterChain.doFilter(request, response);
   }
 
-  private String parseJwt(HttpServletRequest request) {
-    String headerAuth = request.getHeader("Authorization");
-
-    if (StringUtils.hasText(headerAuth) && headerAuth.startsWith("Bearer ")) {
-      return headerAuth.substring(7, headerAuth.length());
+  private Optional<String> parseJwt(HttpServletRequest request) {
+    String authHeader = request.getHeader("Authorization");
+    if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
+      return Optional.of(authHeader.replace("Bearer ", ""));
     }
-
-    return null;
+    return Optional.empty();
   }
 }

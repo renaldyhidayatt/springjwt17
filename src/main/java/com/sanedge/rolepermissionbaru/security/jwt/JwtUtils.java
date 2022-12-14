@@ -1,6 +1,7 @@
 package com.sanedge.rolepermissionbaru.security.jwt;
 
 import java.util.Date;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,13 +9,19 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.JWTVerifier;
+import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.exceptions.JWTVerificationException;
+import com.auth0.jwt.interfaces.DecodedJWT;
+import com.sanedge.rolepermissionbaru.models.User;
 import com.sanedge.rolepermissionbaru.security.services.UserDetailsImpl;
-
-import io.jsonwebtoken.*;
 
 @Component
 public class JwtUtils {
   private static final Logger logger = LoggerFactory.getLogger(JwtUtils.class);
+
+  static final String issuer = "MyApp";
 
   @Value("${springjwt.app.jwtSecret}")
   private String jwtSecret;
@@ -22,38 +29,45 @@ public class JwtUtils {
   @Value("${springjwt.app.jwtExpirationMs}")
   private int jwtExpirationMs;
 
-  public String generateJwtToken(Authentication authentication) {
+  private Algorithm accessTokenAlgorithm;
 
+  private JWTVerifier jwtTokenVerifier;
+
+  public JwtUtils(@Value("${springjwt.app.jwtSecret}") String accessTokenSecret,
+      @Value("${springjwt.app.jwtExpirationMs}") int jwtExpirationMs) {
+    jwtExpirationMs = (int) jwtExpirationMs * 60 * 1000;
+    accessTokenAlgorithm = Algorithm.HMAC512(accessTokenSecret);
+    jwtTokenVerifier = JWT.require(accessTokenAlgorithm)
+        .withIssuer(issuer)
+        .build();
+  }
+
+  public String generateAccessToken(Authentication authentication) {
     UserDetailsImpl userPrincipal = (UserDetailsImpl) authentication.getPrincipal();
 
-    return Jwts.builder()
-        .setSubject((userPrincipal.getUsername()))
-        .setIssuedAt(new Date())
-        .setExpiration(new Date((new Date()).getTime() + jwtExpirationMs))
-        .signWith(SignatureAlgorithm.HS512, jwtSecret)
-        .compact();
+    return JWT.create()
+        .withIssuer(issuer)
+        .withSubject(userPrincipal.getUsername())
+        .withIssuedAt(new Date())
+        .withExpiresAt(new Date(new Date().getTime() + jwtExpirationMs))
+        .sign(accessTokenAlgorithm);
   }
 
-  public String getUserNameFromJwtToken(String token) {
-    return Jwts.parser().setSigningKey(jwtSecret).parseClaimsJws(token).getBody().getSubject();
-  }
-
-  public boolean validateJwtToken(String authToken) {
+  private Optional<DecodedJWT> decodeAccessToken(String token) {
     try {
-      Jwts.parser().setSigningKey(jwtSecret).parseClaimsJws(authToken);
-      return true;
-    } catch (SignatureException e) {
-      logger.error("Invalid JWT signature: {}", e.getMessage());
-    } catch (MalformedJwtException e) {
-      logger.error("Invalid JWT token: {}", e.getMessage());
-    } catch (ExpiredJwtException e) {
-      logger.error("JWT token is expired: {}", e.getMessage());
-    } catch (UnsupportedJwtException e) {
-      logger.error("JWT token is unsupported: {}", e.getMessage());
-    } catch (IllegalArgumentException e) {
-      logger.error("JWT claims string is empty: {}", e.getMessage());
+      return Optional.of(jwtTokenVerifier.verify(token));
+    } catch (JWTVerificationException e) {
+      logger.error("invalid access token", e);
     }
-
-    return false;
+    return Optional.empty();
   }
+
+  public boolean validateAccessToken(String token) {
+    return decodeAccessToken(token).isPresent();
+  }
+
+  public String getUsernameAccessToken(String token) {
+    return decodeAccessToken(token).get().getSubject();
+  }
+
 }
